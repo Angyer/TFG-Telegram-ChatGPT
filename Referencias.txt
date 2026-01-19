@@ -1,0 +1,25 @@
+FastAPI. (s. f.). FastAPI: First Steps. FastAPI Documentation. Recuperado el 19 de enero de 2026, de https://fastapi.tiangolo.com/tutorial/first-steps/
+
+Lowin, J. (2026). fastmcp (Versión 2.14.3) [Python package]. Python Package Index. https://pypi.org/project/fastmcp/
+
+Model Context Protocol. (2025, 18 de junio). Specification. Recuperado el 19 de enero de 2026, de https://modelcontextprotocol.io/specification/2025-06-18
+
+OpenAI. (s. f.). Building MCP servers for ChatGPT and API integrations. OpenAI Platform Documentation. Recuperado el 19 de enero de 2026, de https://platform.openai.com/docs/mcp
+
+OpenAI. (s. f.). Responses. OpenAI API Reference. Recuperado el 19 de enero de 2026, de https://platform.openai.com/docs/api-reference/responses
+
+OpenAI. (s. f.). Conversation state. OpenAI Guides. Recuperado el 19 de enero de 2026, de https://platform.openai.com/docs/guides/conversation-state
+
+Python Software Foundation. (s. f.). Python 3 documentation. Recuperado el 19 de enero de 2026, de https://docs.python.org/3/
+
+Telegram. (s. f.). Telegram Bot API. Recuperado el 19 de enero de 2026, de https://core.telegram.org/bots/api
+
+Telegram. (s. f.). Marvin’s Marvellous Guide to All Things Webhook. Recuperado el 19 de enero de 2026, de https://core.telegram.org/bots/webhooks
+
+ngrok. (s. f.). Get Started with ngrok. ngrok Documentation. Recuperado el 19 de enero de 2026, de https://ngrok.com/docs/start
+
+SQLAlchemy. (s. f.). SQLAlchemy Documentation. Recuperado el 19 de enero de 2026, de https://docs.sqlalchemy.org/
+
+International Organization for Standardization. (2023). Database languages SQL—ISO/IEC 9075-1:2023. ISO. https://www.iso.org/standard/76583.html
+
+theskumar. (s. f.). python-dotenv. GitHub. Recuperado el 19 de enero de 2026, de
