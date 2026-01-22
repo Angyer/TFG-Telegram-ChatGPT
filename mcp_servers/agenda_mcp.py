@@ -43,63 +43,9 @@ if MCP_ACCESS_TOKEN:
 else:
     mcp = FastMCP("Padel Agenda MCP")
 
-# -----------------------
-# Auth de actor (recomendado)
-# -----------------------
-ACTOR_TOKEN_SECRET = os.getenv("ACTOR_TOKEN_SECRET", "").strip()
-
 def _b64url_decode(s: str) -> bytes:
     pad = "=" * (-len(s) % 4)
     return base64.urlsafe_b64decode(s + pad)
-
-def _verify_actor_token(actor_token: str) -> Dict[str, Any]:
-    """
-    Valida actor_token firmado con HMAC:
-      token = base64url(payload_json) + "." + hex_hmac_sha256
-      payload: {"uid":..., "cid":..., "iat":..., "exp":...}
-    """
-    if not ACTOR_TOKEN_SECRET:
-        raise ValueError("server_missing_ACTOR_TOKEN_SECRET")
-    if not actor_token or "." not in actor_token:
-        # Esto captura casos donde el LLM envía "None", "null" o texto sin formato
-        raise ValueError(f"invalid_actor_token_format: '{actor_token}'")
-    try:
-        p, sig = actor_token.split(".", 1)
-    except Exception:
-        raise ValueError("invalid_actor_token_format")
-
-    expected = hmac.new(
-        ACTOR_TOKEN_SECRET.encode("utf-8"),
-        p.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected, sig):
-        raise ValueError("invalid_actor_token_signature")
-
-    payload = json.loads(_b64url_decode(p).decode("utf-8"))
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    if int(payload.get("exp", 0)) < now_ts:
-        raise ValueError("actor_token_expired")
-    return payload
-
-def _resolve_actor_uid(actor_token: Optional[str], actor_telegram_user_id: Optional[int]) -> int:
-    """
-    Prioridad:
-      - si actor_token y ACTOR_TOKEN_SECRET => verifica token y extrae uid
-      - si no hay ACTOR_TOKEN_SECRET => usa actor_telegram_user_id (menos seguro)
-    """
-    # Limpieza: si el LLM envía "None", "null" o vacíos, lo tratamos como None real
-    if actor_token and str(actor_token).lower() in ("none", "null", "", "undefined"):
-        actor_token = None
-    if actor_token:
-        payload = _verify_actor_token(actor_token)
-        return int(payload["uid"])
-    if ACTOR_TOKEN_SECRET:
-        raise ValueError("actor_token_required")
-    if not actor_telegram_user_id:
-        raise ValueError("actor_telegram_user_id_required")
-    return int(actor_telegram_user_id)
 
 def _get_app_user_by_telegram(telegram_user_id: int) -> Optional[Dict[str, Any]]:
     with ENGINE.connect() as cn:
@@ -137,13 +83,13 @@ def _ensure_client_user(telegram_user_id: int, full_name: Optional[str]) -> Tupl
             )
             user_id = int(res.lastrowid)
 
-        c = cn.execute(text("SELECT id FROM clients WHERE user_id=:uid"), {"uid": user_id}).first()
+        c = cn.execute(text("SELECT id FROM clients WHERE user_id=:telegram_user_id"), {"telegram_user_id": user_id}).first()
         if c:
             client_id = int(c[0])
         else:
             res2 = cn.execute(
-                text("INSERT INTO clients(user_id, created_at, updated_at) VALUES (:uid, :now, :now)"),
-                {"uid": user_id, "now": now},
+                text("INSERT INTO clients(user_id, created_at, updated_at) VALUES (:telegram_user_id, :now, :now)"),
+                {"telegram_user_id": user_id, "now": now},
             )
             client_id = int(res2.lastrowid)
 
@@ -480,11 +426,12 @@ def upsert_service(
     price_cents: Optional[int] = None,
     currency: Optional[str] = None,
     is_active: bool = True,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         raise ValueError("actor_not_registered")
     _require_active(u)
@@ -514,11 +461,11 @@ def set_availability_rules(
     coach_id: int,
     rules: List[Dict[str, Any]],
     replace_all: bool = True,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         raise ValueError("actor_not_registered")
     _require_active(u)
@@ -526,7 +473,7 @@ def set_availability_rules(
 
     # Si es coach, solo puede tocar su propio coach_id
     if u["role"] == "coach":
-        my_coach_id = _get_coach_id_for_telegram_user(uid)
+        my_coach_id = _get_coach_id_for_telegram_user(telegram_user_id)
         if not my_coach_id or int(my_coach_id) != int(coach_id):
             raise ValueError("forbidden_other_coach")
 
@@ -567,18 +514,18 @@ def add_availability_exception(
     start_utc: str,
     end_utc: str,
     reason: Optional[str] = None,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         raise ValueError("actor_not_registered")
     _require_active(u)
     _require_coach_or_admin(u)
 
     if u["role"] == "coach":
-        my_coach_id = _get_coach_id_for_telegram_user(uid)
+        my_coach_id = _get_coach_id_for_telegram_user(telegram_user_id)
         if not my_coach_id or int(my_coach_id) != int(coach_id):
             raise ValueError("forbidden_other_coach")
 
@@ -608,18 +555,18 @@ def list_bookings(
     start_utc: str,
     end_utc: str,
     include_cancelled: bool = False,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         raise ValueError("actor_not_registered")
     _require_active(u)
     _require_coach_or_admin(u)
 
     if u["role"] == "coach":
-        my_coach_id = _get_coach_id_for_telegram_user(uid)
+        my_coach_id = _get_coach_id_for_telegram_user(telegram_user_id)
         if not my_coach_id or int(my_coach_id) != int(coach_id):
             raise ValueError("forbidden_other_coach")
 
@@ -649,21 +596,21 @@ def list_my_bookings(
     start_utc: str,
     end_utc: str,
     include_cancelled: bool = False,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         # auto-crea como client si falta (MVP)
-        _ensure_client_user(uid, None)
-        u = _get_app_user_by_telegram(uid)
+        _ensure_client_user(telegram_user_id, None)
+        u = _get_app_user_by_telegram(telegram_user_id)
 
     _require_active(u)
     if u["role"] != "client":
         raise ValueError("forbidden_requires_client")
 
-    client_id = _get_client_id_for_telegram_user(uid)
+    client_id = _get_client_id_for_telegram_user(telegram_user_id)
     if not client_id:
         raise ValueError("client_not_found")
 
@@ -743,15 +690,15 @@ def create_booking(
     service_id: Optional[int] = None,
     notes: Optional[str] = None,
     client_id: Optional[int] = None,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         # MVP: si no existe, lo creamos como client
-        _ensure_client_user(uid, None)
-        u = _get_app_user_by_telegram(uid)
+        _ensure_client_user(telegram_user_id, None)
+        u = _get_app_user_by_telegram(telegram_user_id)
 
     _require_active(u)
     actor_user_id = int(u["id"])
@@ -762,10 +709,10 @@ def create_booking(
     # Permisos + resolver client_id
     if u["role"] == "client":
         # fuerza a “self”
-        my_client_id = _get_client_id_for_telegram_user(uid)
+        my_client_id = _get_client_id_for_telegram_user(telegram_user_id)
         if not my_client_id:
-            _ensure_client_user(uid, u.get("full_name"))
-            my_client_id = _get_client_id_for_telegram_user(uid)
+            _ensure_client_user(telegram_user_id, u.get("full_name"))
+            my_client_id = _get_client_id_for_telegram_user(telegram_user_id)
         client_id = int(my_client_id)
     else:
         _require_coach_or_admin(u)
@@ -838,18 +785,18 @@ def create_booking(
 def cancel_booking(
     booking_id: int,
     reason: Optional[str] = None,
-    actor_token: Optional[str] = None,
-    actor_telegram_user_id: Optional[int] = None,
+    telegram_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    uid = _resolve_actor_uid(actor_token, actor_telegram_user_id)
-    u = _get_app_user_by_telegram(uid)
+    if not telegram_user_id:
+        raise ValueError("actor_telegram_user_id_required")    
+    u = _get_app_user_by_telegram(telegram_user_id)
     if not u:
         raise ValueError("actor_not_registered")
     _require_active(u)
 
     actor_user_id = int(u["id"])
-    my_client_id = _get_client_id_for_telegram_user(uid) if u["role"] == "client" else None
-    my_coach_id = _get_coach_id_for_telegram_user(uid) if u["role"] == "coach" else None
+    my_client_id = _get_client_id_for_telegram_user(telegram_user_id) if u["role"] == "client" else None
+    my_coach_id = _get_coach_id_for_telegram_user(telegram_user_id) if u["role"] == "coach" else None
 
     now = _utcnow()
     with ENGINE.begin() as cn:
@@ -879,13 +826,13 @@ def cancel_booking(
             text("""
                 UPDATE bookings
                    SET status='cancelled',
-                       cancelled_by_user_id=:uid,
+                       cancelled_by_user_id=:telegram_user_id,
                        cancelled_at=:now,
                        cancel_reason=:reason,
                        updated_at=:now
                  WHERE id=:id
             """),
-            {"id": booking_id, "uid": actor_user_id, "reason": reason, "now": now},
+            {"id": booking_id, "telegram_user_id": actor_user_id, "reason": reason, "now": now},
         )
 
     return {"ok": True, "booking_id": booking_id, "status": "cancelled"}
