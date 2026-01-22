@@ -45,8 +45,6 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/telegram/webhook")
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
-ACTOR_TOKEN_SECRET = os.getenv("ACTOR_TOKEN_SECRET", "").strip()
-ACTOR_TOKEN_TTL_SECONDS = int(os.getenv("ACTOR_TOKEN_TTL_SECONDS", "3600"))
 
 # MCP (Remote tool host)
 # Recomendado:
@@ -560,24 +558,6 @@ def consume_coach_invite(token: str, telegram_user_id: int) -> int:
         )
 
     return coach_id
-
-
-def build_actor_token(telegram_user_id: int, telegram_chat_id: int, ttl_seconds: int = None) -> str:
-    """
-    Token firmado (HMAC) para que el MCP pueda verificar el actor real.
-    Formato: base64url(payload_json).hex_hmac
-    """
-    if ttl_seconds is None:
-        ttl_seconds = ACTOR_TOKEN_TTL_SECONDS
-        
-    if not ACTOR_TOKEN_SECRET:
-        return ""
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    payload = {"uid": telegram_user_id, "cid": telegram_chat_id, "iat": now_ts, "exp": now_ts + ttl_seconds}
-    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    p = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-    sig = hmac.new(ACTOR_TOKEN_SECRET.encode("utf-8"), p.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{p}.{sig}"
 
 # ==============================================================================================================
 # DB: Infra operations
@@ -1555,7 +1535,6 @@ async def process_update(update: Dict[str, Any]) -> None:
                     active_coach_id = only_coach
 
         # Variables para Prompt reusable (Dashboard) o fallback
-        actor_token = build_actor_token(telegram_user_id, telegram_chat_id) if ACTOR_TOKEN_SECRET else ""
         prompt_variables: Dict[str, str] = {
             "telegram_user_id": str(telegram_user_id),
             "telegram_chat_id": str(telegram_chat_id),
@@ -1567,7 +1546,6 @@ async def process_update(update: Dict[str, Any]) -> None:
             "today_local": _today_local_iso(DEFAULT_COACH_TIMEZONE),
             "timezone": DEFAULT_COACH_TIMEZONE,
             "coaches_count": str(count_coaches()),
-            "actor_token": str(actor_token) if actor_token else "",
         }
 
         debug_tool = None
